@@ -116,6 +116,7 @@ jobs:
 
           # Copy zip for auto-update
           find out/make -name "*.zip" -exec cp {} "artifacts/$PLATFORM_DIR/" \;
+          find out/make -name "*.dmg" -exec cp {} "artifacts/$PLATFORM_DIR/" \;
           # Copy RELEASES.json for auto-update
           find out/make -name "RELEASES.json" -exec cp {} "artifacts/$PLATFORM_DIR/" \;
 
@@ -183,20 +184,20 @@ jobs:
             python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1]))' "$1"
           }
 
-          MAC_ARM_ZIP="$(find r2-artifacts/darwin/arm64 -maxdepth 1 -type f -name '*.zip' -print -quit)"
-          MAC_X64_ZIP="$(find r2-artifacts/darwin/x64 -maxdepth 1 -type f -name '*.zip' -print -quit)"
+          MAC_ARM_DMG="$(find r2-artifacts/darwin/arm64 -maxdepth 1 -type f -name '*.dmg' -print -quit)"
+          MAC_X64_DMG="$(find r2-artifacts/darwin/x64 -maxdepth 1 -type f -name '*.dmg' -print -quit)"
           WIN_SETUP_EXE="$(find r2-artifacts/win32/x64 -maxdepth 1 -type f \( -iname '*setup*.exe' -o -iname '*Setup*.exe' \) -print -quit)"
 
-          if [[ -z "${MAC_ARM_ZIP}" || -z "${MAC_X64_ZIP}" || -z "${WIN_SETUP_EXE}" ]]; then
+          if [[ -z "${MAC_ARM_DMG}" || -z "${MAC_X64_DMG}" || -z "${WIN_SETUP_EXE}" ]]; then
             echo "Missing expected artifacts:"
-            echo "  darwin/arm64 zip: ${MAC_ARM_ZIP:-<missing>}"
-            echo "  darwin/x64 zip:   ${MAC_X64_ZIP:-<missing>}"
+            echo "  darwin/arm64 dmg: ${MAC_ARM_DMG:-<missing>}"
+            echo "  darwin/x64 dmg:   ${MAC_X64_DMG:-<missing>}"
             echo "  win32/x64 exe:    ${WIN_SETUP_EXE:-<missing>}"
             exit 1
           fi
 
-          MAC_ARM_NAME="$(basename "$MAC_ARM_ZIP")"
-          MAC_X64_NAME="$(basename "$MAC_X64_ZIP")"
+          MAC_ARM_NAME="$(basename "$MAC_ARM_DMG")"
+          MAC_X64_NAME="$(basename "$MAC_X64_DMG")"
           WIN_SETUP_NAME="$(basename "$WIN_SETUP_EXE")"
 
           MAC_ARM_URL="${APP_HOST}/darwin/arm64/$(quote_url "$MAC_ARM_NAME")"
