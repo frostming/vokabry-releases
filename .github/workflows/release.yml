@@ -114,32 +114,11 @@ jobs:
 
           # Copy zip for auto-update
           find out/make -name "*.zip" -exec cp {} "artifacts/$PLATFORM_DIR/" \;
+          # Copy RELEASES.json for auto-update
+          find out/make -name "RELEASES.json" -exec cp {} "artifacts/$PLATFORM_DIR/" \;
 
           # Copy dmg for GitHub Release (direct download)
           find out/make -name "*.dmg" -exec cp {} github-release/ \;
-
-          # Generate RELEASES.json for Squirrel.Mac
-          ZIP_FILE=$(find "artifacts/$PLATFORM_DIR" -name "*.zip" | head -1)
-          ZIP_NAME=$(basename "$ZIP_FILE")
-          VERSION="${{ steps.version.outputs.version }}"
-          PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-
-          cat > "artifacts/$PLATFORM_DIR/RELEASES.json" << EOF
-          {
-            "currentRelease": "$VERSION",
-            "releases": [
-              {
-                "version": "$VERSION",
-                "updateTo": {
-                  "version": "$VERSION",
-                  "pub_date": "$PUB_DATE",
-                  "name": "$VERSION",
-                  "url": "${{ env.APP_HOST }}/$PLATFORM_DIR/$ZIP_NAME"
-                }
-              }
-            ]
-          }
-          EOF
 
           echo "R2 artifacts:"
           ls -la "artifacts/$PLATFORM_DIR/"
