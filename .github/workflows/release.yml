@@ -38,6 +38,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       npm_config_arch: ${{ matrix.arch }}
+    outputs:
+      version: ${{ steps.version.outputs.version }}
 
     steps:
       - name: Checkout
@@ -136,6 +138,7 @@ jobs:
           # Copy Squirrel files for auto-update (to R2)
           find out/make -name "*.nupkg" -exec cp {} "artifacts/$PLATFORM_DIR/" \;
           find out/make -name "RELEASES" -exec cp {} "artifacts/$PLATFORM_DIR/" \;
+          find out/make -name "*Setup*.exe" -exec cp {} "artifacts/$PLATFORM_DIR/" \;
 
           # Copy Setup.exe for GitHub Release (direct download)
           find out/make -name "*Setup*.exe" -exec cp {} github-release/ \;
@@ -171,6 +174,48 @@ jobs:
           pattern: r2-*
           path: r2-artifacts
           merge-multiple: true
+
+      - name: Make latest.json
+        run: |
+          set -euo pipefail
+
+          quote_url() {
+            python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1]))' "$1"
+          }
+
+          MAC_ARM_ZIP="$(find r2-artifacts/darwin/arm64 -maxdepth 1 -type f -name '*.zip' -print -quit)"
+          MAC_X64_ZIP="$(find r2-artifacts/darwin/x64 -maxdepth 1 -type f -name '*.zip' -print -quit)"
+          WIN_SETUP_EXE="$(find r2-artifacts/win32/x64 -maxdepth 1 -type f \( -iname '*setup*.exe' -o -iname '*Setup*.exe' \) -print -quit)"
+
+          if [[ -z "${MAC_ARM_ZIP}" || -z "${MAC_X64_ZIP}" || -z "${WIN_SETUP_EXE}" ]]; then
+            echo "Missing expected artifacts:"
+            echo "  darwin/arm64 zip: ${MAC_ARM_ZIP:-<missing>}"
+            echo "  darwin/x64 zip:   ${MAC_X64_ZIP:-<missing>}"
+            echo "  win32/x64 exe:    ${WIN_SETUP_EXE:-<missing>}"
+            exit 1
+          fi
+
+          MAC_ARM_NAME="$(basename "$MAC_ARM_ZIP")"
+          MAC_X64_NAME="$(basename "$MAC_X64_ZIP")"
+          WIN_SETUP_NAME="$(basename "$WIN_SETUP_EXE")"
+
+          MAC_ARM_URL="${APP_HOST}/darwin/arm64/$(quote_url "$MAC_ARM_NAME")"
+          MAC_X64_URL="${APP_HOST}/darwin/x64/$(quote_url "$MAC_X64_NAME")"
+          WIN_SETUP_URL="${APP_HOST}/win32/x64/$(quote_url "$WIN_SETUP_NAME")"
+
+          cat > r2-artifacts/latest.json << EOF
+          {
+            "version": "${{ needs.build.outputs.version }}",
+            "urls": {
+              "darwin/arm64": "$MAC_ARM_URL",
+              "darwin/x64": "$MAC_X64_URL",
+              "win32/x64": "$WIN_SETUP_URL"
+            }
+          }
+          EOF
+
+          echo "Wrote r2-artifacts/latest.json:"
+          cat r2-artifacts/latest.json
 
       - name: Display artifact structure
         run: |
