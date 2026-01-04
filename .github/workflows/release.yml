@@ -1,0 +1,250 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (skip upload to release)'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+env:
+  # Public URL of your R2 bucket (custom domain or r2.dev URL)
+  APP_HOST: ${{ secrets.APP_HOST }}
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            arch: arm64
+            platform: darwin
+          - os: macos-15-intel
+            arch: x64
+            platform: darwin
+          - os: windows-latest
+            arch: x64
+            platform: win32
+
+    runs-on: ${{ matrix.os }}
+    env:
+      npm_config_arch: ${{ matrix.arch }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          repository: frostming/vocab
+          token: ${{ secrets.VOKABRY_PAT }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: lts/*
+          cache: pnpm
+
+      - name: Import Apple certificate
+        if: runner.os == 'macOS'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          CERTIFICATE_PATH=$RUNNER_TEMP/build_certificate.p12
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+          KEYCHAIN_PASSWORD=$(openssl rand -base64 32)
+
+          # Decode certificate
+          echo -n "$APPLE_CERTIFICATE" | base64 --decode -o $CERTIFICATE_PATH
+
+          # Create temporary keychain
+          security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+
+          # Import certificate
+          security import $CERTIFICATE_PATH -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security list-keychain -d user -s $KEYCHAIN_PATH
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Rebuild native modules
+        run: pnpm exec electron-rebuild -w better-sqlite3
+
+      - name: Build and make
+        run: pnpm make -- --arch=${{ matrix.arch }}
+        env:
+          APP_HOST: ${{ env.APP_HOST }}
+          APTABASE_APP_KEY: ${{ secrets.APTABASE_APP_KEY }}
+          APTABASE_HOST: ${{ secrets.APTABASE_HOST }}
+          # Code signing for macOS
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          DEBUG: electron-forge:*
+
+      - name: Get version
+        id: version
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Prepare artifacts (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          PLATFORM_DIR="${{ matrix.platform }}/${{ matrix.arch }}"
+          mkdir -p "artifacts/$PLATFORM_DIR"
+          mkdir -p github-release
+
+          # Copy zip for auto-update
+          find out/make -name "*.zip" -exec cp {} "artifacts/$PLATFORM_DIR/" \;
+
+          # Copy dmg for GitHub Release (direct download)
+          find out/make -name "*.dmg" -exec cp {} github-release/ \;
+
+          # Generate RELEASES.json for Squirrel.Mac
+          ZIP_FILE=$(find "artifacts/$PLATFORM_DIR" -name "*.zip" | head -1)
+          ZIP_NAME=$(basename "$ZIP_FILE")
+          VERSION="${{ steps.version.outputs.version }}"
+          PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          cat > "artifacts/$PLATFORM_DIR/RELEASES.json" << EOF
+          {
+            "currentRelease": "$VERSION",
+            "releases": [
+              {
+                "version": "$VERSION",
+                "updateTo": {
+                  "version": "$VERSION",
+                  "pub_date": "$PUB_DATE",
+                  "name": "$VERSION",
+                  "url": "${{ env.APP_HOST }}/$PLATFORM_DIR/$ZIP_NAME"
+                }
+              }
+            ]
+          }
+          EOF
+
+          echo "R2 artifacts:"
+          ls -la "artifacts/$PLATFORM_DIR/"
+          echo "GitHub Release artifacts:"
+          ls -la github-release/
+
+      - name: Prepare artifacts (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          PLATFORM_DIR="${{ matrix.platform }}/${{ matrix.arch }}"
+          mkdir -p "artifacts/$PLATFORM_DIR"
+          mkdir -p github-release
+
+          # Copy Squirrel files for auto-update (to R2)
+          find out/make -name "*.nupkg" -exec cp {} "artifacts/$PLATFORM_DIR/" \;
+          find out/make -name "RELEASES" -exec cp {} "artifacts/$PLATFORM_DIR/" \;
+
+          # Copy Setup.exe for GitHub Release (direct download)
+          find out/make -name "*Setup*.exe" -exec cp {} github-release/ \;
+
+          echo "R2 artifacts:"
+          ls -la "artifacts/$PLATFORM_DIR/"
+          echo "GitHub Release artifacts:"
+          ls -la github-release/
+
+      - name: Upload R2 artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: r2-${{ matrix.platform }}-${{ matrix.arch }}
+          path: artifacts/
+          if-no-files-found: error
+
+      - name: Upload GitHub Release artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: github-${{ matrix.platform }}-${{ matrix.arch }}
+          path: github-release/
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    if: "!inputs.dry_run"
+
+    steps:
+      - name: Download R2 artifacts
+        uses: actions/download-artifact@v7
+        with:
+          pattern: r2-*
+          path: r2-artifacts
+          merge-multiple: true
+
+      - name: Display artifact structure
+        run: |
+          echo "=== R2 artifacts (for auto-update) ==="
+          find r2-artifacts -type f
+
+      - name: Upload to Cloudflare R2
+        uses: ryand56/r2-upload-action@latest
+        with:
+          r2-account-id: ${{ secrets.R2_ACCOUNT_ID }}
+          r2-access-key-id: ${{ secrets.R2_ACCESS_KEY_ID }}
+          r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          r2-bucket: ${{ secrets.R2_BUCKET_NAME }}
+          source-dir: r2-artifacts
+          destination-dir: ./
+
+  release-github:
+    needs: build
+    runs-on: ubuntu-latest
+    if: "!inputs.dry_run && startsWith(github.ref, 'refs/tags/')"
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          repository: frostming/vocab
+          token: ${{ secrets.VOKABRY_PAT }}
+          fetch-depth: 0
+
+      - name: Download GitHub Release artifacts
+        uses: actions/download-artifact@v7
+        with:
+          pattern: github-*
+          path: github-release
+          merge-multiple: true
+
+      - name: Display artifact structure
+        run: |
+          echo "=== GitHub Release artifacts ==="
+          find github-release -type f
+
+      - name: Setup node
+        uses: actions/setup-node@v6
+        with:
+          node-version: lts/*
+
+      - name: Generate Release Notes
+        run: |
+          npx changelogithub --output /tmp/release_notes.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: github-release/*
+          body_path: /tmp/release_notes.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
