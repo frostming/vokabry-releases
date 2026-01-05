@@ -114,7 +114,6 @@ jobs:
         run: |
           PLATFORM_DIR="${{ matrix.platform }}/${{ matrix.arch }}"
           mkdir -p "artifacts/$PLATFORM_DIR"
-          mkdir -p github-release
 
           # Copy zip for auto-update
           find out/make -name "*.zip" -exec cp {} "artifacts/$PLATFORM_DIR/" \;
@@ -122,13 +121,8 @@ jobs:
           # Copy RELEASES.json for auto-update
           find out/make -name "RELEASES.json" -exec cp {} "artifacts/$PLATFORM_DIR/" \;
 
-          # Copy dmg for GitHub Release (direct download)
-          find out/make -name "*.dmg" -exec cp {} github-release/ \;
-
-          echo "R2 artifacts:"
+          echo "Artifacts:"
           ls -la "artifacts/$PLATFORM_DIR/"
-          echo "GitHub Release artifacts:"
-          ls -la github-release/
 
       - name: Prepare artifacts (Windows)
         if: runner.os == 'Windows'
@@ -136,33 +130,20 @@ jobs:
         run: |
           PLATFORM_DIR="${{ matrix.platform }}/${{ matrix.arch }}"
           mkdir -p "artifacts/$PLATFORM_DIR"
-          mkdir -p github-release
 
           # Copy Squirrel files for auto-update (to R2)
           find out/make -name "*.nupkg" -exec cp {} "artifacts/$PLATFORM_DIR/" \;
           find out/make -name "RELEASES" -exec cp {} "artifacts/$PLATFORM_DIR/" \;
           find out/make -name "*Setup*.exe" -exec cp {} "artifacts/$PLATFORM_DIR/" \;
 
-          # Copy Setup.exe for GitHub Release (direct download)
-          find out/make -name "*Setup*.exe" -exec cp {} github-release/ \;
-
-          echo "R2 artifacts:"
+          echo "Artifacts:"
           ls -la "artifacts/$PLATFORM_DIR/"
-          echo "GitHub Release artifacts:"
-          ls -la github-release/
 
-      - name: Upload R2 artifacts
+      - name: Upload Artifacts
         uses: actions/upload-artifact@v6
         with:
           name: r2-${{ matrix.platform }}-${{ matrix.arch }}
           path: artifacts/
-          if-no-files-found: error
-
-      - name: Upload GitHub Release artifacts
-        uses: actions/upload-artifact@v6
-        with:
-          name: github-${{ matrix.platform }}-${{ matrix.arch }}
-          path: github-release/
           if-no-files-found: error
 
   publish:
@@ -171,7 +152,7 @@ jobs:
     if: "!inputs.dry_run"
 
     steps:
-      - name: Download R2 artifacts
+      - name: Download Artifacts
         uses: actions/download-artifact@v7
         with:
           pattern: r2-*
@@ -247,15 +228,17 @@ jobs:
           token: ${{ secrets.VOKABRY_PAT }}
           fetch-depth: 0
 
-      - name: Download GitHub Release artifacts
+      - name: Download Artifacts
         uses: actions/download-artifact@v7
         with:
-          pattern: github-*
-          path: github-release
+          pattern: r2-*
+          path: artifacts
           merge-multiple: true
 
-      - name: Display artifact structure
+      - name: Prepare GitHub Release artifacts
         run: |
+          mkdir -p github-release
+          find artifacts -type f \( -iname '*.dmg' -o -iname '*Setup*.exe' -o -iname '*setup*.exe' \) -exec cp {} github-release/ \;
           echo "=== GitHub Release artifacts ==="
           find github-release -type f
 
