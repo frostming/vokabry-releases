@@ -146,6 +146,37 @@ jobs:
           path: artifacts/
           if-no-files-found: error
 
+  web-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          repository: frostming/vocab
+          token: ${{ secrets.VOKABRY_PAT }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: lts/*
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Deploy web
+        run: pnpm run web:deploy
+        env:
+          APTABASE_APP_KEY: ${{ secrets.APTABASE_APP_KEY }}
+          APTABASE_HOST: ${{ secrets.APTABASE_HOST }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
   publish:
     needs: build
     runs-on: ubuntu-latest
