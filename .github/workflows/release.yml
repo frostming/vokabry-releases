@@ -148,7 +148,6 @@ jobs:
 
   build-extensions:
     runs-on: ubuntu-latest
-    needs: build
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -175,10 +174,8 @@ jobs:
 
       - name: Make extensions archive
         run: |
-          cd dist-extension-chrome && zip -r ../out/vokabry-chrome-extension-${VERSION}.zip . && cd ..
-          cd dist-extension-firefox && zip -r ../out/vokabry-firefox-extension-${VERSION}.xpi . && cd ..
-        env:
-          VERSION: ${{ needs.build.outputs.version }}
+          cd dist-extension-chrome && zip -r ../out/vokabry-chrome-extension-${GIT_TAG}.zip . && cd ..
+          cd dist-extension-firefox && zip -r ../out/vokabry-firefox-extension-${GIT_TAG}.xpi . && cd ..
 
       - name: Upload Extensions
         uses: actions/upload-artifact@v6
