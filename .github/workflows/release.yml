@@ -146,6 +146,48 @@ jobs:
           path: artifacts/
           if-no-files-found: error
 
+  build-extensions:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          repository: frostming/vocab
+          token: ${{ secrets.VOKABRY_PAT }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: lts/*
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build extensions
+        run: pnpm run ext:build
+
+      - name: Make extensions archive
+        run: |
+          cd dist-extension-chrome && zip -r ../out/vokabry-chrome-extension-${VERSION}.zip . && cd ..
+          cd dist-extension-firefox && zip -r ../out/vokabry-firefox-extension-${VERSION}.xpi . && cd ..
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+
+      - name: Upload Extensions
+        uses: actions/upload-artifact@v6
+        with:
+          name: extensions
+          path: |
+            out/vokabry-chrome-extension-*.zip
+            out/vokabry-firefox-extension-*.xpi
+
   web-deploy:
     runs-on: ubuntu-latest
 
@@ -249,7 +291,7 @@ jobs:
           destination-dir: ./
 
   release-github:
-    needs: build
+    needs: [build, build-extensions]
     runs-on: ubuntu-latest
     if: "!inputs.dry_run"
 
@@ -267,10 +309,16 @@ jobs:
           path: artifacts
           merge-multiple: true
 
+      - name: Download Extensions
+        uses: actions/download-artifact@v7
+        with:
+          name: extensions
+
       - name: Prepare GitHub Release artifacts
         run: |
           mkdir -p github-release
           find artifacts -type f \( -iname '*.dmg' -o -iname '*Setup*.exe' -o -iname '*setup*.exe' \) -exec cp {} github-release/ \;
+          find extensions -type f -iname '*.zip' -exec cp {} github-release/ \;
           echo "=== GitHub Release artifacts ==="
           find github-release -type f
 
