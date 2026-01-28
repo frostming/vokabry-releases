@@ -311,6 +311,7 @@ jobs:
         uses: actions/download-artifact@v7
         with:
           name: extensions
+          path: extensions
 
       - name: Prepare GitHub Release artifacts
         run: |
