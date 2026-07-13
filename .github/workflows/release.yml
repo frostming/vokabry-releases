@@ -102,7 +102,15 @@ jobs:
           Write-Host "Attempting to download previous Squirrel releases from $baseUrl"
 
           try {
-            $releasesContent = (Invoke-WebRequest -Uri "$baseUrl/RELEASES" -UseBasicParsing -ErrorAction Stop).Content
+            # Use -OutFile to avoid PowerShell 7 returning Content as byte[] for non-text MIME types
+            # (Cloudflare R2 serves extension-less files as application/octet-stream)
+            $tempReleasesFile = [System.IO.Path]::GetTempFileName()
+            try {
+              Invoke-WebRequest -Uri "$baseUrl/RELEASES" -OutFile $tempReleasesFile -UseBasicParsing -ErrorAction Stop
+              $releasesContent = Get-Content -Raw $tempReleasesFile
+            } finally {
+              Remove-Item $tempReleasesFile -Force -ErrorAction SilentlyContinue
+            }
             Write-Host "Found previous RELEASES file"
 
             foreach ($line in ($releasesContent -split "`n")) {
