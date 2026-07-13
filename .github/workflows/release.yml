@@ -90,6 +90,46 @@ jobs:
       - name: Rebuild native modules
         run: pnpm exec electron-rebuild -w better-sqlite3
 
+      - name: Download previous Squirrel releases (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          # Standard electron-forge squirrel maker output path for win32/x64
+          $squirrelDir = "out\make\squirrel.windows\x64"
+          New-Item -ItemType Directory -Force -Path $squirrelDir | Out-Null
+
+          $baseUrl = "$env:APP_HOST/win32/x64"
+          Write-Host "Attempting to download previous Squirrel releases from $baseUrl"
+
+          try {
+            $releasesContent = (Invoke-WebRequest -Uri "$baseUrl/RELEASES" -UseBasicParsing -ErrorAction Stop).Content
+            Write-Host "Found previous RELEASES file"
+
+            foreach ($line in ($releasesContent -split "`n")) {
+              $line = $line.Trim()
+              # RELEASES entry format: SHA1HASH filename filesize (e.g. ABC123 vokabry-1.0.0-full.nupkg 12345678)
+              if ($line -match '^\S+\s+(\S+-full\.nupkg)\s+\d+$') {
+                $nupkgName = $matches[1]
+                $nupkgPath = "$squirrelDir\$nupkgName"
+                Write-Host "Downloading $nupkgName ..."
+                try {
+                  Invoke-WebRequest -Uri "$baseUrl/$nupkgName" -OutFile $nupkgPath -UseBasicParsing -ErrorAction Stop
+                  Write-Host "Downloaded $nupkgName successfully"
+                } catch {
+                  Write-Warning "Failed to download ${nupkgName}: $_"
+                  if (Test-Path $nupkgPath) {
+                    Remove-Item -Path $nupkgPath -Force
+                    Write-Host "Removed partial download: $nupkgName"
+                  }
+                }
+              }
+            }
+          } catch {
+            Write-Host "No previous RELEASES found at $baseUrl/RELEASES (expected for first release)"
+          }
+        env:
+          APP_HOST: ${{ env.APP_HOST }}
+
       - name: Build and make
         run: pnpm make -- --arch=${{ matrix.arch }}
         env:
